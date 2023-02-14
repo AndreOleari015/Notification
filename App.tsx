@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Alert, StyleSheet, Text, TextInput, Button, View } from 'react-native';
+import { Alert, StyleSheet, Text, Platform, TextInput, Button, View } from 'react-native';
 
+import * as Notifications from 'expo-notifications';
 import messaging from '@react-native-firebase/messaging';
+
 import { urlRootNode } from './src/services/api';
 
 export default function App() {
@@ -17,6 +19,9 @@ export default function App() {
     data: {}
   });
 
+  const notificationListener = useRef({});
+  const responseListener = useRef({});
+
   const requestUserPermission = async () => {
     const authStatus = await messaging().requestPermission();
     const enabled =
@@ -29,6 +34,14 @@ export default function App() {
         setToken(token);
         console.log(token)
       })
+    }
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
     }
   }
 
@@ -65,6 +78,14 @@ export default function App() {
   }
 
   useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    });
+
     requestUserPermission();
 
     messaging().onNotificationOpenedApp(async (remoteMessage) => {
@@ -89,14 +110,36 @@ export default function App() {
     // Register background handler
     messaging().setBackgroundMessageHandler(async remoteMessage => {
       console.log('Message handled in the background!', remoteMessage);
+      await schedulePushNotification(remoteMessage.data?.title, remoteMessage.data?.body);
     });
+    
 
     const unsubscribe = messaging().onMessage(async remoteMessage => {
       Alert.alert('A new FCM message arrived!', JSON.stringify(remoteMessage));
+
+      await schedulePushNotification(remoteMessage.data?.title, remoteMessage.data?.body);
+    });
+
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log(notification);
+    });
+
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log(response);
     });
 
     return unsubscribe;
   }, [])
+
+  const schedulePushNotification = async (title: string | undefined, body: string | undefined) => {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: title,
+        body: body,
+      },
+      trigger: { seconds: 1 },
+    });
+  }
 
   return (
     <View style={styles.container}>
